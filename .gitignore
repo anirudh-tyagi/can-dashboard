@@ -34,4 +34,4 @@ venv/
 *.csv
 
 # Temporary files
-*.tmp
+*.tmpnodes/main
