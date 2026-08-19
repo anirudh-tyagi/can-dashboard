@@ -34,5 +34,7 @@ venv/
 *.csv
 
 # Temporary files
-*.tmpnodes/main
+*.tmp
+
+# Compiled node binaries
 nodes/*/main

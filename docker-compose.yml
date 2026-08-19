@@ -1,16 +1,20 @@
 services:
-  coolant_temp:
-    build:
-      context: ./nodes/coolant_temp
-      dockerfile: Dockerfile
-    container_name: coolant_temp
-    restart: unless-stopped
-
   engine_rpm:
     build:
       context: ./nodes/engine_rpm
       dockerfile: Dockerfile
     container_name: engine_rpm
+    # vcan0 lives in the HOST network namespace. Without this the container gets
+    # its own empty namespace and SIOCGIFINDEX fails with "No such device".
+    network_mode: host
+    restart: unless-stopped
+
+  coolant_temp:
+    build:
+      context: ./nodes/coolant_temp
+      dockerfile: Dockerfile
+    container_name: coolant_temp
+    network_mode: host
     restart: unless-stopped
 
   wheel_speed:
@@ -18,4 +22,5 @@ services:
       context: ./nodes/wheel_speed
       dockerfile: Dockerfile
     container_name: wheel_speed
+    network_mode: host
     restart: unless-stopped
