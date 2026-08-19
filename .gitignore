@@ -35,3 +35,4 @@ venv/
 
 # Temporary files
 *.tmpnodes/main
+nodes/*/main
