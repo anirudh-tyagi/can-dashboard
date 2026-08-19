@@ -1,62 +1,57 @@
-#include <cstdio>
-#include <cstring>
+// ECU node: engine coolant temperature.
+// Publishes CAN ID 0x200 every 1000 ms. Payload is one byte, offset-encoded:
+// raw = celsius + 40, so -40..215 C fits in an unsigned byte with no sign bit.
+// (This is exactly how real OBD-II PID 0x05 encodes coolant temperature.)
+
+#include <csignal>
 #include <cstdint>
-
-#include <chrono>
-#include <thread>
-
-#include <unistd.h>
-#include <net/if.h>
-#include <sys/ioctl.h>
-#include <sys/socket.h>
+#include <cstdio>
 
 #include <linux/can.h>
-#include <linux/can/raw.h>
 
-int main() {
-    int sock = socket(AF_CAN, SOCK_RAW, CAN_RAW);
-    if (sock < 0) {
-        perror("socket");
-        return 1;
-    }
+#include "common/can_bus.hpp"
+#include "common/periodic.hpp"
 
-    struct ifreq ifr{};
-    strncpy(ifr.ifr_name, "vcan0", IFNAMSIZ - 1);
-    if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0) {
-        perror("ioctl (is vcan0 up?)");
-        return 1;
-    }
+namespace {
+volatile std::sig_atomic_t g_running = 1;
+void on_signal(int) { g_running = 0; }
+}  // namespace
 
-    struct sockaddr_can addr{};
-    addr.can_family = AF_CAN;
-    addr.can_ifindex = ifr.ifr_ifindex;
-    if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        perror("bind");
-        return 1;
-    }
+int main(int argc, char** argv) {
+    // Docker captures stdout through a pipe, which makes it block-buffered.
+    // Line-buffer it so `docker compose logs -f` streams in real time.
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
 
-    printf("Coolant Temp node attached to vcan0\n");
+    std::signal(SIGINT, on_signal);
+    std::signal(SIGTERM, on_signal);
 
-    int temp_c = 20;   // cold start
+    try {
+        const std::string iface = canbus::iface_from(argc, argv);
+        canbus::Socket bus(iface);
+        std::printf("[coolant_temp] attached to %s (ifindex %d), publishing 0x200 @ 1 Hz\n",
+                    bus.iface().c_str(), bus.ifindex());
 
-    while (true) {
-        struct can_frame frame{};
-        frame.can_id = 0x200;
-        frame.can_dlc = 1;
-        frame.data[0] = static_cast<uint8_t>(temp_c + 40);
+        timing::Periodic cycle(std::chrono::milliseconds(1000));
+        int temp_c = 20;   // cold start
 
-        ssize_t nbytes = write(sock, &frame, sizeof(frame));
-        if (nbytes != sizeof(frame)) {
-            perror("write");
-            break;
+        while (g_running) {
+            struct can_frame frame {};
+            frame.can_id  = 0x200;
+            frame.can_dlc = 1;
+            frame.data[0] = static_cast<std::uint8_t>(temp_c + 40);
+
+            bus.send(frame);
+            std::printf("[coolant_temp] %d C (raw 0x%02X)\n", temp_c, frame.data[0]);
+
+            if (temp_c < 90) temp_c += 2;   // warming toward operating temperature
+
+            cycle.wait_next();
         }
 
-        printf("Coolant temp = %d C\n", temp_c);
-
-        if (temp_c < 90) temp_c += 2;   // warming up toward operating temp
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        std::printf("[coolant_temp] shutting down cleanly\n");
+        return 0;
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "[coolant_temp] fatal: %s\n", e.what());
+        return 1;
     }
-
-    return 0;
 }

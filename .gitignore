@@ -38,3 +38,6 @@ venv/
 
 # Compiled node binaries
 nodes/*/main
+
+# Personal learning notes (not part of the project)
+LEARN.md

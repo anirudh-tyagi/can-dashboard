@@ -1,68 +1,67 @@
-#include <cstdio>
-#include <cstring>
+// ECU node: wheel speed.
+// Publishes CAN ID 0x300 every 50 ms. Payload is a big-endian uint16 at
+// 0.01 km/h per bit, so 120.00 km/h is transmitted as 12000.
+
+#include <csignal>
 #include <cstdint>
-
-#include <chrono>
-#include <thread>
-
-#include <unistd.h>
-#include <net/if.h>
-#include <sys/ioctl.h>
-#include <sys/socket.h>
+#include <cstdio>
 
 #include <linux/can.h>
-#include <linux/can/raw.h>
 
-int main() {
-    int sock = socket(AF_CAN, SOCK_RAW, CAN_RAW);
-    if (sock < 0) {
-        perror("socket");
-        return 1;
-    }
+#include "common/can_bus.hpp"
+#include "common/periodic.hpp"
 
-    struct ifreq ifr{};
-    strncpy(ifr.ifr_name, "vcan0", IFNAMSIZ - 1);
-    if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0) {
-        perror("ioctl (is vcan0 up?)");
-        return 1;
-    }
+namespace {
+volatile std::sig_atomic_t g_running = 1;
+void on_signal(int) { g_running = 0; }
+}  // namespace
 
-    struct sockaddr_can addr{};
-    addr.can_family = AF_CAN;
-    addr.can_ifindex = ifr.ifr_ifindex;
-    if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        perror("bind");
-        return 1;
-    }
+int main(int argc, char** argv) {
+    // Docker captures stdout through a pipe, which makes it block-buffered.
+    // Line-buffer it so `docker compose logs -f` streams in real time.
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
 
-    printf("Wheel Speed node attached to vcan0\n");
+    std::signal(SIGINT, on_signal);
+    std::signal(SIGTERM, on_signal);
 
-    double speed_kmh = 0.0;
-    double direction = 1.0;   // +1 = accelerating, -1 = braking
+    try {
+        const std::string iface = canbus::iface_from(argc, argv);
+        canbus::Socket bus(iface);
+        std::printf("[wheel_speed] attached to %s (ifindex %d), publishing 0x300 @ 20 Hz\n",
+                    bus.iface().c_str(), bus.ifindex());
 
-    while (true) {
-        uint16_t raw = static_cast<uint16_t>(speed_kmh * 100.0);
+        timing::Periodic cycle(std::chrono::milliseconds(50));
+        double speed_kmh = 0.0;
+        double direction = 1.0;   // +1 accelerating, -1 braking
+        std::uint64_t ticks = 0;
 
-        struct can_frame frame{};
-        frame.can_id = 0x300;
-        frame.can_dlc = 2;
-        frame.data[0] = (raw >> 8) & 0xFF;
-        frame.data[1] = raw & 0xFF;
+        while (g_running) {
+            const auto raw = static_cast<std::uint16_t>(speed_kmh * 100.0);
 
-        ssize_t nbytes = write(sock, &frame, sizeof(frame));
-        if (nbytes != sizeof(frame)) {
-            perror("write");
-            break;
+            struct can_frame frame {};
+            frame.can_id  = 0x300;
+            frame.can_dlc = 2;
+            frame.data[0] = (raw >> 8) & 0xFF;
+            frame.data[1] = raw & 0xFF;
+
+            bus.send(frame);
+
+            if (++ticks % 20 == 0)   // ~1 line per second instead of 20
+                std::printf("[wheel_speed] %.1f km/h (raw %u)  missed=%llu\n",
+                            speed_kmh, raw,
+                            static_cast<unsigned long long>(cycle.missed()));
+
+            speed_kmh += direction * 2.0;
+            if (speed_kmh >= 120.0) direction = -1.0;
+            if (speed_kmh <= 0.0)   direction =  1.0;
+
+            cycle.wait_next();
         }
 
-        printf("Wheel speed = %.1f km/h\n", speed_kmh);
-
-        speed_kmh += direction * 2.0;
-        if (speed_kmh >= 120.0) direction = -1.0;
-        if (speed_kmh <= 0.0)   direction = 1.0;
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::printf("[wheel_speed] shutting down cleanly\n");
+        return 0;
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "[wheel_speed] fatal: %s\n", e.what());
+        return 1;
     }
-
-    return 0;
 }
