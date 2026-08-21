@@ -79,13 +79,15 @@ int main(int argc, char** argv) {
 
             // Computed last, over the bytes above. data[3] is still zero and
             // is skipped by checksum() anyway.
-            frame.data[3] = e2e::checksum(frame, kChecksumIdx);
+            frame.data[kChecksumIdx] = e2e::checksum(frame, kChecksumIdx);
 
             bus.send(frame);
 
             if (++ticks % 50 == 0)   // one line per second instead of fifty
                 std::printf("[engine_rpm] %6.0f rpm  gear %d  cnt %2u  csum 0x%02X  missed=%llu\n",
-                            st.rpm, st.gear, counter_nib, frame.data[3],
+                            st.rpm, st.gear,
+                            static_cast<unsigned>(counter_nib),
+                            static_cast<unsigned>(frame.data[kChecksumIdx]),
                             static_cast<unsigned long long>(cycle.missed()));
 
             cycle.wait_next();

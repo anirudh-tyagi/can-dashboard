@@ -64,7 +64,8 @@ int main(int argc, char** argv) {
             frame.data[0] = static_cast<std::uint8_t>(raw);
 
             bus.send(frame);
-            std::printf("[coolant_temp] %5.1f degC (raw 0x%02X)\n", st.coolant_c, frame.data[0]);
+            std::printf("[coolant_temp] %5.1f degC (raw 0x%02X)\n",
+                        st.coolant_c, static_cast<unsigned>(frame.data[0]));
 
             cycle.wait_next();
         }

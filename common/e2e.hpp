@@ -54,7 +54,7 @@ inline std::uint8_t id_tag(canid_t id) noexcept {
 }
 
 inline std::uint8_t checksum(const struct can_frame& frame, int checksum_index) {
-    std::uint8_t sum = kSeed ^ id_tag(frame.can_id);
+    auto sum = static_cast<std::uint8_t>(kSeed ^ id_tag(frame.can_id));
     for (int i = 0; i < static_cast<int>(frame.can_dlc); ++i) {
         if (i == checksum_index) continue;
         sum ^= frame.data[i];

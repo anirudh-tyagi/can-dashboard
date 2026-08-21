@@ -4,9 +4,9 @@ bin/
 *.o
 *.out
 
-# Compiled executables
-node
-dashboard
+# Compiled executables (built binaries only - NOT the dashboard/ source dir)
+build/node
+build/dashboard
 
 # CMake
 CMakeCache.txt

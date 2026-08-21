@@ -71,13 +71,15 @@ int main(int argc, char** argv) {
             const std::uint8_t counter_nib = counter.next() & 0x0F;
             frame.data[2] = static_cast<std::uint8_t>(counter_nib | (st.brake ? kBrakeBit : 0));
 
-            frame.data[3] = e2e::checksum(frame, kChecksumIdx);
+            frame.data[kChecksumIdx] = e2e::checksum(frame, kChecksumIdx);
 
             bus.send(frame);
 
             if (++ticks % 50 == 0)
                 std::printf("[wheel_speed] %6.2f km/h  brake %d  cnt %2u  csum 0x%02X  missed=%llu\n",
-                            st.speed_kmh, st.brake ? 1 : 0, counter_nib, frame.data[3],
+                            st.speed_kmh, st.brake ? 1 : 0,
+                            static_cast<unsigned>(counter_nib),
+                            static_cast<unsigned>(frame.data[kChecksumIdx]),
                             static_cast<unsigned long long>(cycle.missed()));
 
             cycle.wait_next();
